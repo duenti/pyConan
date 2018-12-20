@@ -22,10 +22,12 @@ theory and residue co-evolutionary networks for specificity determinant position
 * -I <value> - Maximum Identity value. It is used to remove high identity sequences. (0-1)
 * -f <value> - Minimum node frequency. It removes nodes (residues) that rarely occurs in the alignment. (0-1)
 * -F <value> - Maximum node frequency. It removes higly conserved nodes (residues). (0-1)
-* -m <0 or 1> - Method to Statistically validate the nodes.\t0 - Tumminello (Network based validation)\t1 - DRCN (Frequency based validation)
+* -m <0 or 1> - Method to Statistically validate the nodes.
+  * 0 - Tumminello (Network based validation)
+  * 1 - DRCN (Frequency based validation)
 * -e <0 or 1> - Include marginally conservation properties.
-* \t0 - Consider only co-variation between amino acids.
-* \t1 - Also include stereochemical and structural amino acids properties.
+  * 0 - Consider only co-variation between amino acids.
+  * 1 - Also include stereochemical and structural amino acids properties.
 
 Use -h for access the Help text.
 
