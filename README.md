@@ -3,8 +3,9 @@
 This software analyzes a residue co-variation network with the aim to emphasize local evolutionary constraints and consequently detect functional and specificity determinant sites. Its only mandatory input is a multiple sequence alignment in one of the following formats: Pfam, Stockholm or FASTA; and the output consists of several networks and communities files from several cuts of the network.
 
 This software was still not pubblished, but further information about this methodology can be accessed at:
-da Fonseca, N. J., Afonso, M. Q. L., de Oliveira, L. C., & Bleicher, L. (2018). A new method bridging graph 
-theory and residue co-evolutionary networks for specificity determinant positions detection. Bioinformatics.
+
+[da Fonseca, N. J., Afonso, M. Q. L., de Oliveira, L. C., & Bleicher, L. (2018). A new method bridging graph 
+theory and residue co-evolutionary networks for specificity determinant positions detection. Bioinformatics](https://academic.oup.com/bioinformatics/advance-article-abstract/doi/10.1093/bioinformatics/bty846/5123433?redirectedFrom=fulltext).
 
 **Required external libraries**
 - [Python-Levenshtein](https://pypi.org/project/python-Levenshtein/)
