@@ -932,13 +932,6 @@ if line[0] == '>':
 else:
 	msa = readStockholm(inputfile)
 
-
-for seqname,sequence in msa.items():
-	print(seqname + " " + str(len(sequence)))
-
-
-
-sys.exit()
 N_msa = len(msa)
 #########CREATE FOLDER############
 if outputdir[len(outputdir)-1] == '/':#Remove /
