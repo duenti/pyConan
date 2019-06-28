@@ -18,6 +18,7 @@ from operator import itemgetter
 import getopt
 
 MIN_JC = 0.5
+FREQ_WINDOW = 0.10
 
 properties = {}
 properties[0] = "A"
@@ -121,6 +122,47 @@ setsAA[35] = "FYW"
 setsAA[36] = "ND"
 setsAA[37] = "QE"
 
+alphabet = {}
+alphabet["A"] = 1
+alphabet["C"] = 1
+alphabet["D"] = 1
+alphabet["E"] = 1
+alphabet["F"] = 1
+alphabet["G"] = 1
+alphabet["H"] = 1
+alphabet["I"] = 1
+alphabet["K"] = 1
+alphabet["L"] = 1
+alphabet["M"] = 1
+alphabet["N"] = 1
+alphabet["P"] = 1
+alphabet["Q"] = 1
+alphabet["R"] = 1
+alphabet["S"] = 1
+alphabet["T"] = 1
+alphabet["V"] = 1
+alphabet["W"] = 1
+alphabet["Y"] = 1
+alphabet["Amide"] = 2
+alphabet["Aliphatic"] = 5
+alphabet["Basic"] = 3
+alphabet["Hydroxyl"] = 3
+alphabet["Sulfur"] = 2
+alphabet["Non-Polar"] = 9
+alphabet["Polar"] = 6.1
+alphabet["Hydrophobic"] = 6
+alphabet["Hydrophilic"] = 6
+alphabet["Pos.Charged"] = 2
+alphabet["Neg.Charged"] = 2
+alphabet["VerySmall"] = 3.2
+alphabet["Small"] = 5.1
+alphabet["MediumA"] = 4
+alphabet["MediumB"] = 5.1
+alphabet["Aromatic"] = 3.1
+alphabet["ND"] = 2.2
+alphabet["QE"] = 2.2
+
+
 class Node:
 	def __init__(self,aaid,pos):
 		self.id = [aaid]
@@ -146,6 +188,10 @@ class Node:
 		if len(self.id) > 1:
 			return str(self.id)
 		return properties[self.id[0]] + "_" + str(self.position[0])
+	def getTuple(self):
+		return (self.id[0],self.position[0])
+	def getIndex(self):
+		return self.position[0]-1
 
 def isHMM():
 	for name,sequence in msa.items():
@@ -218,6 +264,46 @@ def maxIdFiltering():
 	for seqname in new_msa.keys():
 		new_msa[seqname] = msa[seqname]
 	return new_msa
+
+def writeUnalignedFasta():
+	unal_file = outputdir + "/unaligned.fa"
+	fw = open(unal_file,'w')
+	for seqname,sequence in msa.items():
+		fw.write('>' + seqname + "\n")
+		fw.write(sequence.replace('.','').replace('-','') + "\n")
+	fw.close()
+	return unal_file
+
+
+def maxIdCDhit():
+	unal_file = writeUnalignedFasta()
+	out_file = outputdir + "/cluster"
+	n = 5
+	if maxid > 0.7:
+		n = 5
+	elif maxid > 0.6:
+		n = 4
+	elif maxid > 0.5:
+		n = 3
+	else:
+		n = 2
+
+	os.system('./cd-hit -i ' + unal_file + ' -o ' + out_file + ' -c ' + str(maxid) + ' -n ' + str(n) + ' -M 3000 -T 2')
+
+	new_msa = {}
+	fr = open(out_file)
+
+	for line in fr:
+		line = line.strip()
+		if len(line) > 1:
+			if line[0] == '>':
+				seqname = line[1:]
+				sequence = msa[seqname]
+				new_msa[seqname] = sequence
+	return new_msa
+
+	fr.close()
+
 
 def aa2id(aa):
 	aa = aa.upper()
@@ -300,7 +386,7 @@ def residueFiltering():
 			else:
 				new_seq += aa.upper()
 		msa[seqname] = new_seq
-	return removed
+	return (removed,freqList)
 
 def nodesFiltering(nodes):
 	freqList = []
@@ -332,7 +418,7 @@ def nodesFiltering(nodes):
 		else:
 			newNodes.add(node)
 
-	return (newNodes,removed)
+	return (newNodes,removed,freqList)
 
 def getNodes():
 	nodeSet = set()
@@ -581,11 +667,12 @@ def getTumminelloTuple(res1,res2):
 		return ((wProj,Dj,Di),jc)
 
 
-def genCorrelationNetwork(method,netthr):
+def genCorrelationNetwork(method,netthr,freqList):
 	N = len(nodes)
 	nodeList = list(nodes)
 	network = []
 	tummineloDic = {}
+	#temp = 0
 
 	for i in range(0,N-1):
 		print("Calculating Correlations... (" + str(i) + "/" + str(N) + ")")
@@ -593,7 +680,11 @@ def genCorrelationNetwork(method,netthr):
 			n1 = nodeList[i]#Object
 			n2 = nodeList[j]#Object
 			jc = 0.0
-			if n1.position != n2.position:
+
+			fr1 = freqList[n1.getIndex()][n1.id][0]
+			fr2 = freqList[n2.getIndex()][n2.id][0]
+			if n1.position != n2.position and abs(fr1-fr2) <= FREQ_WINDOW:
+				#temp+=1
 				if method == 1:
 					w,jc = DRCN(n1,n2)
 				else:		
@@ -606,7 +697,7 @@ def genCorrelationNetwork(method,netthr):
 						tummineloDic[tummData] = w
 
 				if w >= netthr:
-					#print(n1.toString() + " " + n2.toString() + " " + str(w))
+					#print(str(temp) + " " + n1.toString() + " " + n2.toString() + " " + str(w))
 					network.append((n1,n2,w,jc))
 
 	network = sorted(network,key=lambda x: x[2],reverse=True)
@@ -770,6 +861,40 @@ def communityDetection2(Gnx):
 
 	return N,communities,jc_all
 
+def filterRedundancy(comm):
+	new_comm = set()
+	positions = {}
+
+	for node in comm:
+		aa2_id,pos = node.getTuple()
+		if pos in positions:
+			aa_id = positions[pos]
+			aa = properties[aa_id]
+			aa2 = properties[aa2_id]
+			size1 = alphabet[aa]
+			size2 = alphabet[aa2]
+			if size2 < size1:
+				positions[pos] = aa2_id
+		else:
+			positions[pos] = aa2_id
+
+	for pos,aa_id in positions.items():
+		residue = Node(aa_id,pos)
+		new_comm.add(residue)
+	return new_comm
+
+def filterNetwork(Gnx,comms):
+	comm_nodes = set()
+
+	for comm in comms:
+		comm_nodes = comm_nodes.union(comm)
+
+	for node in Gnx.nodes():
+		if node not in comm_nodes:
+			Gnx.remove_node(node)
+
+	return Gnx
+
 def writeCommunities(path,communities):
 	communities = sorted(communities,key=lambda x: len(x),reverse=True)
 	fw1 = open(path,'w')
@@ -781,11 +906,17 @@ def writeCommunities(path,communities):
 	fw1.close()
 
 def writeBackbone(path,backbone):
+	avgJC = 0.0
+	Nedges = 0.0
 	fw2 = open(path,'w')
 	for ni,nj in backbone.edges():
 		w = backbone[ni][nj]['weight']
-		fw2.write(ni.toStackedString() + " " + nj.toStackedString() + " " + str(w) + "\n")
+		pv = backbone[ni][nj]['pvalue']
+		fw2.write(ni.toStackedString() + " " + nj.toStackedString() + " " + str(w)  + " " + str(pv) + "\n")
+		avgJC+=w
+		Nedges+=1.0
 	fw2.close()
+	return avgJC/Nedges
 
 def readFasta(inputfile):
 	msa = {}
@@ -838,6 +969,7 @@ def printHelp():
 		"-i <filename> - A multiple sequence alignment file\n"
 		"-o <directory> - An output directory path\n\n"
 		"Optional parameters:\n"
+		"-p <value> - Minimum correlation p-value (in -log(x))\n"
 		"-O <value> - Minimum Occupancy value. It is used to remove fragments of sequences. (0-1)\n"
 		"-I <value> - Maximum Identity value. It is used to remove high identity sequences. (0-1)\n"
 		"-f <value> - Minimum node frequency. It removes nodes (residues) that rarely occurs in the alignment. (0-1)\n"
@@ -867,9 +999,10 @@ maxfreq = 0.8
 method = 5
 netthr = 5
 marginal = 1
+min_pv = 15
 
 try:
-	opts, args = getopt.getopt(argv,"i:o:O:I:f:F:m:e:")
+	opts, args = getopt.getopt(argv,"i:o:p:O:I:f:F:m:e:h")
 	#print(opts)
 	#print(args)
 except getopt.GetoptError:
@@ -897,6 +1030,8 @@ for opt, arg in opts:
 		inputfile = arg
 	elif opt in ("-o"):
 		outputdir = arg
+	elif opt in ("-p"):
+		min_pv = float(arg)
 	elif opt in ("-O"):
 		minocc = float(arg)
 	elif opt in ("-I"):
@@ -920,6 +1055,7 @@ if outputdir == "":
 ##ATUALIZAR PARA LER FASTA
 msa = {}
 nodes = set()
+nodes_frequencies = []
 
 ###Check MSA type
 fr = open(inputfile,'r')
@@ -949,12 +1085,12 @@ N_msaOCC = len(msa)
 
 ######FILTER BY MAXID#############
 if maxid > 0.0:
-	msa = maxIdFiltering()
+	msa = maxIdCDhit()
 N_msaOCC_ID = len(msa)
 
 ######FILTER RESIDUES###############
 if marginal == 0:
-	res_rem = residueFiltering()
+	res_rem,nodes_frequencies = residueFiltering()
 
 #######WRITE FILTERED MSA#########
 fw = open(outputdir + "/filtered.txt",'w')
@@ -967,53 +1103,102 @@ print("Calculating the correlations...")
 nodes = getNodes()
 
 if marginal == 1:
-	nodes,res_rem = nodesFiltering(nodes)
+	nodes,res_rem,nodes_frequencies = nodesFiltering(nodes)
 
-network = genCorrelationNetwork(method,netthr)
+network = genCorrelationNetwork(method,netthr,nodes_frequencies)
 
 #####COMMUNITY DETECTION##########
 print("Detecting communities...")
-outputcomm = outputdir + "/comms.txt"
-network.sort(key=lambda tup: tup[2])
+#outputcomm = outputdir + "/comms.txt"
 
-currentW = 3
-lastLenG = 0
-sumW = 3
-
-comPath = outputdir + "communities/"
+comPath = outputdir + "/communities/"
 if not os.path.exists(comPath):
 	os.makedirs(comPath)
-backPath = outputdir + "backbones/"
+backPath = outputdir + "/backbones/"
 if not os.path.exists(backPath):
 	os.makedirs(backPath)
 
 fw = open(outputdir + "/cutoff.txt",'w')
 
-while True:
-	network = [(ni,nj,w,jc) for (ni,nj,w,jc) in network if w >= currentW]
-	if len(network) == 0:
-		break
-	if len(network) == lastLenG:
-		currentW += sumW
-		continue
-	else:
-		lastLenG = len(network)
+#Filter by p-value
+network = [(ni,nj,w,jc) for (ni,nj,w,jc) in network if w >= min_pv]
+#Filter by Min Jacard Coeficient Value (Reduce complexity)
+network = [(ni,nj,w,jc) for (ni,nj,w,jc) in network if jc >= MIN_JC]
+#Sort by Jacard Coeficient
+network = sorted(network, key=lambda tup: tup[3])
 
-	edges = [(item[0],item[1],item[3]) for item in network] #For NX only JC
-	Gnx = nx.Graph()
-	Gnx.add_weighted_edges_from(edges)
+communities = []
+detected_nodes = {}
+Gnx = nx.Graph()
 
-	if marginal == 1:
-		Gnx = filterNodesPriori(Gnx)
+###Last State Variables###
+lsv_communities = []
+lsv_N_residues = 0
 
-	Ncoms,listOfComms,jc_avg = communityDetection2(Gnx)
+#First Iteration
+if len(network) > 0:
+	ni,nj,pv,jc = network.pop()
+	comm = set([ni,nj])
+	detected_nodes[ni] = 0
+	detected_nodes[nj] = 0
+	communities.append(comm)
+	lsv_communities = communities
+	Gnx.add_edge(ni,nj,weight=jc,pvalue=pv)
+	lsv_N_residues = 2
 
-	if jc_avg > MIN_JC:
-		writeCommunities(comPath + str(currentW),listOfComms)
-		writeBackbone(backPath + str(currentW),Gnx)
+#Post iterations
+while(len(network) > 0):
+	ni,nj,pv,jc = network.pop()
+	Gnx.add_edge(ni,nj,weight=jc,pvalue=pv)
+	if ni in detected_nodes and nj in detected_nodes:
+		commI = detected_nodes[ni]
+		commJ = detected_nodes[nj]
+		if commI != commJ:#Merge communities
+			if commI > commJ:
+				temp = commI
+				commI = commJ
+				commJ = temp
+			communities[commI] = communities[commI].union(communities[commJ])
+			del communities[commJ]
+			for res,comm in detected_nodes.items():
+				if comm == commJ:
+					detected_nodes[res] = commI
+				elif comm > commJ:
+					detected_nodes[res] = comm-1
+		else:
+			continue #Both nodes were already detected
+	if ni in detected_nodes:#Add Nj to Ni community
+		commI = detected_nodes[ni]
+		communities[commI].add(nj)
+		detected_nodes[nj] = commI
+	elif nj in detected_nodes:#Add Ni to Nj community
+		commJ = detected_nodes[nj]
+		communities[commJ].add(ni)
+		detected_nodes[ni] = commJ
+	else:#New Cluster
+		comm = set([ni,nj])
+		i = len(communities)
+		detected_nodes[ni] = i
+		detected_nodes[nj] = i
+		communities.append(comm)
 
-		fw.write(str(currentW) + " " + str(Ncoms) + " " + str(jc_avg) + "\n")
-	print("Cutoff: " + str(currentW) + "\tN. communities: " + str(Ncoms) + " JC avg: " + str(jc_avg))
-	currentW += sumW
+	#Validate and Write State
+	N_residues = 0
+	comms = []
+	for i,comm in enumerate(communities):
+		fixed_comm = filterRedundancy(comm)
+		N_residues+=len(fixed_comm)
+		comms.append(fixed_comm)
+	if N_residues > lsv_N_residues:#Write lsv
+		Gnx = filterNetwork(Gnx,lsv_communities)
 
-fw.close()
+		####WRITE EVERYTHING
+		writeCommunities(comPath + str(lsv_N_residues),lsv_communities)
+		jc_avg = writeBackbone(backPath + str(lsv_N_residues),Gnx)
+		Ncoms = len(lsv_communities)
+		fw.write(str(lsv_N_residues) + " " + str(Ncoms) + " " + str(jc_avg) + "\n")
+		print("N. Residues: " + str(lsv_N_residues) + "\tN. communities: " + str(Ncoms) + " JC avg: " + str(jc_avg))
+		lsv_N_residues = N_residues
+	else:#Store in lsv
+		lsv_communities = comms
+	
