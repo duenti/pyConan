@@ -1,20 +1,13 @@
-import xml.etree.ElementTree as ET
 from Levenshtein import ratio
 import numpy as np
 import os
 import math
 from decimal import Decimal
 from scipy.stats import hypergeom
-from scipy.misc import logsumexp
-import scipy.spatial.distance
+from scipy.special import logsumexp
 import random
-import time
 import sys
-import pandas as pd
 import networkx as nx
-from itertools import combinations
-import itertools
-from operator import itemgetter
 import getopt
 
 MIN_JC = 0.5
@@ -173,6 +166,8 @@ class Node:
 		if not isinstance(other, type(self)):
 			return NotImplemented
 		return self.id == other.id and self.position == other.position
+	def __str__(self):
+		return properties[self.id[0]] + str(self.position[0])
 	def add2Cluster(self,residue):
 		self.id.append(residue)
 	def getClusters(self):
@@ -214,7 +209,7 @@ def isAA(aa,case):
 def hmmFiltering():
 	new_msa = {}
 	hmmValidPositions = []
-	seq = msa.items()[0][1]
+	seq = list(msa.items())[0][1]
 
 	for i,aa in enumerate(seq):
 		if aa == '-' or aa.isupper():
@@ -357,7 +352,7 @@ def aa2id(aa):
 def residueFiltering():
 	freqList = []
 	N = len(msa)
-	seq = msa.items()[0][1]
+	seq = list(msa.items())[0][1]
 	removed = [0,0]
 
 	for i,aa in enumerate(seq):
@@ -391,7 +386,7 @@ def residueFiltering():
 def nodesFiltering(nodes):
 	freqList = []
 	N = len(msa)
-	seq = msa.items()[0][1]
+	seq = list(msa.items())[0][1]
 	newNodes = set()
 	removed = [0,0]
 
@@ -754,21 +749,6 @@ def filterNodesPriori(Gnx):
 							Gnx.remove_node(node)
 	return Gnx
 
-#Usando Avg
-def consineDistance(Ni,Nj):
-	comm1 = Ni.getClusters()
-	comm2 = Nj.getClusters()
-	col1 = df[comm1[0]]
-	col2 = df[comm2[0]]
-	for res in comm1[1:]:
-		col1+=df[res]
-	for res in comm2[1:]:
-		col2+=df[res]
-	col1 /= len(comm1)
-	col2 /= len(comm2)
-
-	return scipy.spatial.distance.cosine(col1,col2)
-	#return cc
 
 def merge_nodes(G,nodes, new_node, attr_dict=None, **attr):
 	G.add_node(new_node, attr_dict, **attr) # Add the 'merged' node
@@ -781,61 +761,6 @@ def merge_nodes(G,nodes, new_node, attr_dict=None, **attr):
 
 	for n in nodes: # remove the merged nodes
 		G.remove_node(n)
-
-def communityDetection(Gnx,cutoff):
-	communities = []
-	count = 0
-	distances = {}
-	while True:
-		count += 1
-		mindist = 99999999
-		#maxdist = 0
-		mergecomm1 = ""
-		mergecomm2 = ""
-		
-		for Ni,Nj in Gnx.edges():
-			#dist = euclidianDistance(Ni,Nj)
-			tupla = (Ni.toString(),Nj.toString())
-			if tupla in distances:
-				dist = distances[tupla]
-			else:
-				dist = consineDistance(Ni,Nj)
-				distances[tupla] = dist
-			if dist < mindist:
-			#if dist > maxdist:
-				mindist = dist
-				#maxdist = dist
-				mergecomm1 = Ni
-				mergecomm2 = Nj
-		if mergecomm1 == "" or mergecomm2 == "":
-			break
-		if mindist > cutoff:
-			break
-		#print(str(len(Gnx)) + " nodes. Distance = " + str(mindist))
-		#new_node = mergecomm1 + "_" + mergecomm2
-		new_node = Node(-1,-1)
-		new_node.id = mergecomm1.id + mergecomm2.id
-		new_node.position = mergecomm1.position + mergecomm2.position
-		merge_nodes(Gnx,[mergecomm1,mergecomm2],new_node)
-
-	#fw = open(outputcomm,'w')
-	count = 0
-	for comms in Gnx.nodes():
-		idlist = comms.id
-		poslist = comms.position
-		if len(idlist) > 1:
-			comm = []
-			for i in range(len(idlist)):
-				res = Node(idlist[i],poslist[i])
-				#res = properties[idlist[i]] + str(poslist[i])
-				#print(res + " "),
-				#fw.write(node + " ")
-				comm.append(res)
-				count +=1
-			communities.append(comm)
-			#print("\n")
-			#fw.write("\n")
-	return count,communities
 
 def communityDetection2(Gnx):
 	communities = []
@@ -888,12 +813,19 @@ def filterNetwork(Gnx,comms):
 
 	for comm in comms:
 		comm_nodes = comm_nodes.union(comm)
-
 	for node in Gnx.nodes():
 		if node not in comm_nodes:
 			Gnx.remove_node(node)
-
 	return Gnx
+
+def correctedNresidues(Gnx,comms):
+	comm_nodes = set()
+
+	for comm in comms:
+		if len(comm) > 1:
+			comm_nodes = comm_nodes.union(comm)
+
+	return len(comm_nodes)
 
 def writeCommunities(path,communities):
 	communities = sorted(communities,key=lambda x: len(x),reverse=True)
@@ -907,6 +839,7 @@ def writeCommunities(path,communities):
 
 def writeBackbone(path,backbone):
 	avgJC = 0.0
+	minJC = 1.0
 	Nedges = 0.0
 	fw2 = open(path,'w')
 	for ni,nj in backbone.edges():
@@ -915,8 +848,10 @@ def writeBackbone(path,backbone):
 		fw2.write(ni.toStackedString() + " " + nj.toStackedString() + " " + str(w)  + " " + str(pv) + "\n")
 		avgJC+=w
 		Nedges+=1.0
+		if w < minJC:
+			minJC = w
 	fw2.close()
-	return avgJC/Nedges
+	return (avgJC/Nedges,minJC)
 
 def readFasta(inputfile):
 	msa = {}
@@ -1135,6 +1070,18 @@ Gnx = nx.Graph()
 lsv_communities = []
 lsv_N_residues = 0
 
+########DEBUG##########
+def printDetectedNodes(dic):
+	for key,value in dic.items():
+		print(str(key) + " " + str(value))
+
+def printCommunities(comms):
+	N = 0
+	for comm in comms:
+		N += len(comm)
+	print(N)
+######################
+
 #First Iteration
 if len(network) > 0:
 	ni,nj,pv,jc = network.pop()
@@ -1183,22 +1130,29 @@ while(len(network) > 0):
 		communities.append(comm)
 
 	#Validate and Write State
-	N_residues = 0
+	#N_residues = 0
 	comms = []
 	for i,comm in enumerate(communities):
 		fixed_comm = filterRedundancy(comm)
-		N_residues+=len(fixed_comm)
+		#N_residues+=len(fixed_comm)
 		comms.append(fixed_comm)
+	N_residues = correctedNresidues(Gnx,comms)
 	if N_residues > lsv_N_residues:#Write lsv
-		Gnx = filterNetwork(Gnx,lsv_communities)
+		###comms e detectedResidues are correct.
+		##For some reason I am deleting detected residues here
+		Gnx_filtered = filterNetwork(Gnx.copy(),lsv_communities)
 
 		####WRITE EVERYTHING
 		writeCommunities(comPath + str(lsv_N_residues),lsv_communities)
-		jc_avg = writeBackbone(backPath + str(lsv_N_residues),Gnx)
+		jc_avg,minJC = writeBackbone(backPath + str(lsv_N_residues),Gnx_filtered)
 		Ncoms = len(lsv_communities)
+
 		fw.write(str(lsv_N_residues) + " " + str(Ncoms) + " " + str(jc_avg) + "\n")
-		print("N. Residues: " + str(lsv_N_residues) + "\tN. communities: " + str(Ncoms) + " JC avg: " + str(jc_avg))
+		print("N. Residues: " + str(lsv_N_residues) + "\tN. communities: " + str(Ncoms) + " JC avg: " + str(jc_avg) + " Min JC: " + str(minJC))
 		lsv_N_residues = N_residues
+		lsv_communities = comms
 	else:#Store in lsv
 		lsv_communities = comms
-	
+
+
+fw.close()
