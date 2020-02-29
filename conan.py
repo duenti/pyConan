@@ -166,6 +166,10 @@ class Node:
 		if not isinstance(other, type(self)):
 			return NotImplemented
 		return self.id == other.id and self.position == other.position
+	def __lt__(self, other):
+		if not isinstance(other, type(self)):
+			return NotImplemented
+		return self.position < other.position
 	def __str__(self):
 		return properties[self.id[0]] + str(self.position[0])
 	def add2Cluster(self,residue):
@@ -283,7 +287,7 @@ def maxIdCDhit():
 	else:
 		n = 2
 
-	os.system('./cd-hit -i ' + unal_file + ' -o ' + out_file + ' -c ' + str(maxid) + ' -n ' + str(n) + ' -M 3000 -T 2')
+	os.system('cd-hit -i ' + unal_file + ' -o ' + out_file + ' -c ' + str(maxid) + ' -n ' + str(n) + ' -M 3000 -T 2')
 
 	new_msa = {}
 	fr = open(out_file)
@@ -661,6 +665,29 @@ def getTumminelloTuple(res1,res2):
 	else:
 		return ((wProj,Dj,Di),jc)
 
+def getJacardCoeficient(res1,res2):
+	aa1_list = setsAA[res1.id[0]]
+	i1 = res1.position[0] - 1
+	aa2_list = setsAA[res2.id[0]]
+	i2 = res2.position[0] - 1
+	a = 0.0
+	b = 0.0
+	c = 0.0
+	d = 0.0
+
+	for sequence in msa.values():
+		if sequence[i1].upper() in aa1_list:
+			if sequence[i2].upper() in aa2_list:
+				a += 1.0
+			else:
+				b += 1.0
+		elif sequence[i2].upper() in aa2_list:
+			c += 1.0
+		else:
+			d += 1.0
+
+	jc = a / (a + b + c)
+	return jc
 
 def genCorrelationNetwork(method,netthr,freqList):
 	N = len(nodes)
@@ -818,7 +845,7 @@ def filterNetwork(Gnx,comms):
 			Gnx.remove_node(node)
 	return Gnx
 
-def correctedNresidues(Gnx,comms):
+def correctedNresidues(comms):
 	comm_nodes = set()
 
 	for comm in comms:
@@ -826,6 +853,44 @@ def correctedNresidues(Gnx,comms):
 			comm_nodes = comm_nodes.union(comm)
 
 	return len(comm_nodes)
+
+def getFullJacardCoefficient(Gnx,communities,extra_edgesJC):
+	minJC = 1.0
+	avgJC = 0.0
+
+	for comm in communities:
+		avgCommJC = 0.0
+		NcommJC = 0.0
+		comm = list(comm)
+		for i in range(0,len(comm)-1):
+			for j in range(i+1,len(comm)):
+				res1 = comm[i]
+				res2 = comm[j]
+				NcommJC += 1.0
+				if res1 in Gnx[res2]:
+					avgCommJC += Gnx[res1][res2]['weight']
+				else:
+					if res1 < res2:
+						if (res1,res2) in extra_edgesJC:
+							avgCommJC += extra_edgesJC[(res1,res2)]
+						else:
+							value = getJacardCoeficient(res1, res2)
+							extra_edgesJC[(res1, res2)] = value
+							avgCommJC += value
+					else:
+						if (res2,res1) in extra_edgesJC:
+							avgCommJC += extra_edgesJC[(res2, res1)]
+						else:
+							value = getJacardCoeficient(res1,res2)
+							extra_edgesJC[(res2,res1)] = value
+							avgCommJC += value
+		avgCommJC /= NcommJC
+		avgJC += avgCommJC
+		if avgCommJC < minJC:
+			minJC = avgCommJC
+	avgJC /= float(len(communities))
+	return avgJC,minJC
+
 
 def writeCommunities(path,communities):
 	communities = sorted(communities,key=lambda x: len(x),reverse=True)
@@ -838,20 +903,12 @@ def writeCommunities(path,communities):
 	fw1.close()
 
 def writeBackbone(path,backbone):
-	avgJC = 0.0
-	minJC = 1.0
-	Nedges = 0.0
 	fw2 = open(path,'w')
 	for ni,nj in backbone.edges():
 		w = backbone[ni][nj]['weight']
 		pv = backbone[ni][nj]['pvalue']
 		fw2.write(ni.toStackedString() + " " + nj.toStackedString() + " " + str(w)  + " " + str(pv) + "\n")
-		avgJC+=w
-		Nedges+=1.0
-		if w < minJC:
-			minJC = w
 	fw2.close()
-	return (avgJC/Nedges,minJC)
 
 def readFasta(inputfile):
 	msa = {}
@@ -904,15 +961,15 @@ def printHelp():
 		"-i <filename> - A multiple sequence alignment file\n"
 		"-o <directory> - An output directory path\n\n"
 		"Optional parameters:\n"
-		"-p <value> - Minimum correlation p-value (in -log(x))\n"
-		"-O <value> - Minimum Occupancy value. It is used to remove fragments of sequences. (0-1)\n"
-		"-I <value> - Maximum Identity value. It is used to remove high identity sequences. (0-1)\n"
-		"-f <value> - Minimum node frequency. It removes nodes (residues) that rarely occurs in the alignment. (0-1)\n"
-		"-F <value> - Maximum node frequency. It removes higly conserved nodes (residues). (0-1)\n"
-		"-m <0 or 1> - Method to Statistically validate the nodes.\n\t0 - Tumminello (Network based validation)\n\t1 - DRCN (Frequency based validation)\n"
+		"-p <value> - Minimum correlation p-value (in -log(x)) [DEFAULT: 15]\n"
+		"-O <value> - Minimum Occupancy value. It is used to remove fragments of sequences. (0-1) [DEFAULT: 0.8]\n"
+		"-I <value> - Maximum Identity value. It is used to remove high identity sequences. (0-1) [DEFAULT: 0.8]\n"
+		"-f <value> - Minimum node frequency. It removes nodes (residues) that rarely occurs in the alignment. (0-1) [DEFAULT: 0.05]\n"
+		"-F <value> - Maximum node frequency. It removes higly conserved nodes (residues). (0-1) [DEFAULT: 0.95]\n"
+		"-m <0 or 1> - Method to Statistically validate the nodes.\n\t0 - Tumminello (Network based validation - DEFAULT)\n\t1 - DRCN (Frequency based validation)\n"
 		"-e <0 or 1> - Include marginally conservation properties.\n"
 		"\t0 - Consider only co-variation between amino acids.\n"
-		"\t1 - Also include stereochemical and structural amino acids properties.\n"
+		"\t1 - Also include stereochemical and structural amino acids properties. [DEFAULT]\n"
 		"\nMore information at http://www.biocomp.icb.ufmg.br/conan")
 
 ######GENERAL VARIABLES##########
@@ -930,8 +987,8 @@ outputdir = ''
 minocc = 0.8
 maxid = 0.8
 minfreq = 0.05
-maxfreq = 0.8
-method = 5
+maxfreq = 0.95
+method = 0
 netthr = 5
 marginal = 1
 min_pv = 15
@@ -1065,22 +1122,11 @@ network = sorted(network, key=lambda tup: tup[3])
 communities = []
 detected_nodes = {}
 Gnx = nx.Graph()
+extra_edgesJC = {}
 
 ###Last State Variables###
 lsv_communities = []
 lsv_N_residues = 0
-
-########DEBUG##########
-def printDetectedNodes(dic):
-	for key,value in dic.items():
-		print(str(key) + " " + str(value))
-
-def printCommunities(comms):
-	N = 0
-	for comm in comms:
-		N += len(comm)
-	print(N)
-######################
 
 #First Iteration
 if len(network) > 0:
@@ -1130,22 +1176,22 @@ while(len(network) > 0):
 		communities.append(comm)
 
 	#Validate and Write State
-	#N_residues = 0
 	comms = []
 	for i,comm in enumerate(communities):
 		fixed_comm = filterRedundancy(comm)
 		#N_residues+=len(fixed_comm)
 		comms.append(fixed_comm)
-	N_residues = correctedNresidues(Gnx,comms)
+	N_residues = correctedNresidues(comms)
 	if N_residues > lsv_N_residues:#Write lsv
-		###comms e detectedResidues are correct.
-		##For some reason I am deleting detected residues here
 		Gnx_filtered = filterNetwork(Gnx.copy(),lsv_communities)
 
-		####WRITE EVERYTHING
 		writeCommunities(comPath + str(lsv_N_residues),lsv_communities)
-		jc_avg,minJC = writeBackbone(backPath + str(lsv_N_residues),Gnx_filtered)
+		writeBackbone(backPath + str(lsv_N_residues),Gnx_filtered)
 		Ncoms = len(lsv_communities)
+
+		jc_avg,minJC = getFullJacardCoefficient(Gnx,lsv_communities,extra_edgesJC)
+		if minJC < MIN_JC:
+			break
 
 		fw.write(str(lsv_N_residues) + " " + str(Ncoms) + " " + str(jc_avg) + "\n")
 		print("N. Residues: " + str(lsv_N_residues) + "\tN. communities: " + str(Ncoms) + " JC avg: " + str(jc_avg) + " Min JC: " + str(minJC))
