@@ -14,6 +14,11 @@ theory and residue co-evolutionary networks for specificity determinant position
 - [Pandas](https://pandas.pydata.org/pandas-docs/stable/install.html)
 - [NetworkX](https://networkx.github.io/documentation/latest/install.html)
 
+**Installation**
+We provide a YAML file to facilitate the installation of the dependencies, just use Anaconda or Miniconda to install all the python dependencies.
+
+CONAN also requires an external software to filter the alignments. Please, download and install the appropriated version of [CD-HIT](http://weizhongli-lab.org/cd-hit/) through their website. Make sure that the software is callable by the 'cd-hit' command.
+
 **The mandatory inputs consits of:**
 + -i <filename> - A multiple sequence alignment file
 + -o <directory> - An output directory path
