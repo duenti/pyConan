@@ -1183,8 +1183,9 @@ while(len(network) > 0):
 		comms.append(fixed_comm)
 	N_residues = correctedNresidues(comms)
 	if N_residues > lsv_N_residues:#Write lsv
-		Gnx_filtered = filterNetwork(Gnx.copy(),lsv_communities)
-
+		#Gnx_filtered = filterNetwork(Gnx.copy(),lsv_communities)
+		Gnx_filtered = Gnx.copy()
+		
 		writeCommunities(comPath + str(lsv_N_residues),lsv_communities)
 		writeBackbone(backPath + str(lsv_N_residues),Gnx_filtered)
 		Ncoms = len(lsv_communities)
